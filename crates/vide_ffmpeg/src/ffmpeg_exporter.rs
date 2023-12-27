@@ -121,7 +121,10 @@ impl Export for FFmpegExporter {
                 .chain(frame.chunks(3).map(|pixel| pixel[2]))
                 .collect::<Vec<_>>();
             // Copy texture (and remove 4th component of each pixel) to frame
-            new_frame.planes_mut()[0].data_mut().write(&frame).unwrap();
+            let mut yuv = new_frame.planes_mut();
+            yuv[0].data_mut().write_all(frame.chunks(3).map(|pixel| pixel[0]).collect::<Vec<_>>().as_slice()).unwrap();
+            yuv[1].data_mut().write_all(frame.chunks(3).map(|pixel| pixel[1]).collect::<Vec<_>>().as_slice()).unwrap();
+            yuv[2].data_mut().write_all(frame.chunks(3).map(|pixel| pixel[2]).collect::<Vec<_>>().as_slice()).unwrap();
             // Add to encoder queue
             encoder.push(new_frame.with_pts(timestamp).freeze()).unwrap();
         }

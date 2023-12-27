@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use vide::prelude::*;
+use vide::ffmpeg::FFmpegExporter;
 
 #[rustfmt::skip]
 fn main() {
@@ -56,5 +57,11 @@ fn main() {
         color: unanimated!("#0037da"),
     });
 
-    video.render(vide::quick_export::to("output.mp4"));
+    video.render(FFmpegExporter::new(
+        "output.mp4",
+        "mp4",
+        "libx264",
+        "yuv444p",
+        None,
+    ));
 }

@@ -28,6 +28,7 @@ pub struct FFmpegExporter {
 
     container: String,
     video_coding: String,
+    pixel_formatting: String,
     audio_coding: Option<String>,
 
     encoder: Option<VideoEncoder>,
@@ -40,12 +41,19 @@ pub struct FFmpegExporter {
 }
 
 impl FFmpegExporter { // TODO: Support multiple encoders and stuff
-    pub fn new(output: impl ToString, container: impl ToString, video_coding: impl ToString, audio_coding: Option<String>) -> Self {
+    pub fn new(
+        output: impl ToString,
+        container: impl ToString,
+        video_coding: impl ToString,
+        pixel_format: impl ToString,
+        audio_coding: Option<String>
+    ) -> Self {
         Self {
             output: output.to_string(),
 
             container: container.to_string(),
             video_coding: video_coding.to_string(),
+            pixel_formatting: pixel_format.to_string(),
             audio_coding: audio_coding,
 
             encoder: None,
@@ -62,9 +70,9 @@ impl FFmpegExporter { // TODO: Support multiple encoders and stuff
 impl Export for FFmpegExporter {
     fn begin(&mut self, settings: vide_lib::api::video::VideoSettings) {
         let time_base = TimeBase::new(1, 1_000_000);
-        let pixel_format = video::frame::get_pixel_format("rgb24");
+        let pixel_format = video::frame::get_pixel_format(&self.pixel_formatting);
         
-        let encoder = VideoEncoder::builder("libx264rgb")
+        let encoder = VideoEncoder::builder(&self.video_coding)
             .unwrap()
             .pixel_format(pixel_format)
             .width(settings.resolution.0 as usize)
@@ -91,8 +99,29 @@ impl Export for FFmpegExporter {
         {
             // Allocate frame
             let mut new_frame = VideoFrameMut::black(self.pixel_format.unwrap(), self.resolution.0, self.resolution.1);
+            // Remove 4th component of each pixel and convert to YUV
+            let frame = frame
+                .chunks(4)
+                .flat_map(|pixel| {
+                    let &[r, g, b, _] = pixel else {
+                        panic!("invalid pixel values");
+                    };
+                    [
+                        (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) as u8,
+                        (-0.14713 * r as f32 + -0.28886 * g as f32 + 0.436 * b as f32) as u8,
+                        (0.615 * r as f32 + -0.51499 * g as f32 + -0.10001 * b as f32) as u8,
+                    ]
+                })
+                .collect::<Vec<_>>();
+            // Pack frame
+            let frame = frame
+                .chunks(3)
+                .map(|pixel| pixel[0])
+                .chain(frame.chunks(3).map(|pixel| pixel[1]))
+                .chain(frame.chunks(3).map(|pixel| pixel[2]))
+                .collect::<Vec<_>>();
             // Copy texture (and remove 4th component of each pixel) to frame
-            new_frame.planes_mut()[0].data_mut().write_all(&frame.chunks(4).flat_map(|p|[p[0], p[1], p[2]]).collect::<Vec<_>>()[..]).unwrap();
+            new_frame.planes_mut()[0].data_mut().write(&frame).unwrap();
             // Add to encoder queue
             encoder.push(new_frame.with_pts(timestamp).freeze()).unwrap();
         }

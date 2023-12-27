@@ -8,6 +8,7 @@ fn main() {
 
     let mut video = Video::new(VideoSettings {
         duration: Duration::from_secs_f64(5.0),
+        background_color: Color::TRANSPARENT_BLACK,
         ..Default::default()
     });
 

@@ -11,6 +11,7 @@ const ALL_BARS_WIDTH: f32 = 1000.0;
 const BAR_SEPERATION: f32 = 4.0;
 const MIN_FREQ: f32 = 20.0;
 const MAX_FREQ: f32 = 20000.0;
+const FALLOFF_WEIGHT: f32 = 0.84;
 
 fn main() {
     env_logger::init();
@@ -92,7 +93,7 @@ fn main() {
 
             let prev = previous_value[bar];
             // println!("{prev} {}", value.val() * 5000.0);
-            let value = (prev * 0.84).max(value.val() * 5000.0);
+            let value = (prev * FALLOFF_WEIGHT).max(value.val() * 5000.0);
             previous_value[bar] = value;
 
             size_animations[bar].keyframe(
@@ -112,7 +113,7 @@ fn main() {
                 0.0
             )),
             size: animation.build(),
-            color: unanimated!("#5ff2f0"),
+            color: unanimated!("#ffa000"),
         });
     }
 
@@ -139,8 +140,8 @@ fn main() {
             .hold(3.0)
             .keyframe(Rel(0.6), ease::IN_QUARTIC, (0.0, 164.0))
             .build(),
-        color: unanimated!("#042F2E"),
+        color: unanimated!("#cc8000"),
     });
 
-    video.render(vide::quick_export::to("output.mp4"));
+    video.render(vide::quick_export::to("output-3.mp4"));
 }

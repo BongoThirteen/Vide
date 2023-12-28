@@ -8,8 +8,7 @@ fn main() {
     env_logger::init();
 
     let mut video = Video::new(VideoSettings {
-        duration: Duration::from_secs_f64(5.0),
-        background_color: Color::TRANSPARENT_BLACK,
+        duration: Duration::from_secs_f64(1.0),
         ..Default::default()
     });
 

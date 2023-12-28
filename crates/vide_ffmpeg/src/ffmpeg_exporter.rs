@@ -3,7 +3,50 @@ use std::{fs::File, io::Write};
 
 use ac_ffmpeg::{codec::{video::{VideoEncoder, self, VideoFrameMut, PixelFormat}, Encoder}, time::{TimeBase, Timestamp}, format::{muxer::{Muxer, OutputFormat}, io::IO}};
 
+use ffimage::iter::{BytesExt, PixelsExt};
+use ffimage::Pixel;
+
+use ffimage_yuv::yuv::Yuv;
+
 use vide_lib::io::Export;
+
+struct Rgba<T, const R: usize = 0, const G: usize = 1, const B: usize = 2, const A: usize = 3>(pub [T; 4]);
+
+impl<T, const R: usize, const G: usize, const B: usize, const A: usize> Pixel for Rgba<T, R, G, B, A> {
+    const CHANNELS: u8 = 4;
+}
+
+impl<T, const R: usize, const G: usize, const B: usize, const A: usize> From<[T; 4]> for Rgba<T, R, G, B, A> {
+    fn from(value: [T; 4]) -> Self {
+        Self(value)
+    }
+}
+
+impl<
+    const Y: usize,
+    const U: usize,
+    const V: usize,
+    const R: usize,
+    const G: usize,
+    const B: usize,
+    const A: usize,
+> Into<Yuv<u8, Y, U, V>> for Rgba<u8, R, G, B, A> {
+    fn into(self) -> Yuv<u8, Y, U, V> {
+        let r = self.0[R] as i32;
+        let g = self.0[G] as i32;
+        let b = self.0[B] as i32;
+
+        let y = ((66 * r + 129 * g + 25 * b + 128) >> 8) + 16;
+        let u = ((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128;
+        let v = ((112 * r - 94 * g - 18 * b + 128) >> 8) + 128;
+
+        let mut yuv = Yuv::<u8, Y, U, V>::default();
+        yuv[Y] = y as u8;
+        yuv[U] = u as u8;
+        yuv[V] = v as u8;
+        yuv
+    }
+}
 
 fn open_output(path: &str, elementary_streams: &[ac_ffmpeg::codec::CodecParameters]) -> Result<Muxer<File>, ac_ffmpeg::Error> {
     let output_format = OutputFormat::guess_from_file_name(path)
@@ -99,32 +142,26 @@ impl Export for FFmpegExporter {
         {
             // Allocate frame
             let mut new_frame = VideoFrameMut::black(self.pixel_format.unwrap(), self.resolution.0, self.resolution.1);
-            // Remove 4th component of each pixel and convert to YUV
-            let frame = frame
-                .chunks(4)
-                .flat_map(|pixel| {
-                    let &[r, g, b, _] = pixel else {
-                        panic!("invalid pixel values");
-                    };
-                    [
-                        (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) as u8,
-                        (-0.14713 * r as f32 + -0.28886 * g as f32 + 0.436 * b as f32) as u8,
-                        (0.615 * r as f32 + -0.51499 * g as f32 + -0.10001 * b as f32) as u8,
-                    ]
-                })
-                .collect::<Vec<_>>();
-            // Pack frame
-            let frame = frame
-                .chunks(3)
-                .map(|pixel| pixel[0])
-                .chain(frame.chunks(3).map(|pixel| pixel[1]))
-                .chain(frame.chunks(3).map(|pixel| pixel[2]))
-                .collect::<Vec<_>>();
-            // Copy texture (and remove 4th component of each pixel) to frame
+            // Remove 4th component of each pixel, convert to YUV and unpack
+            let plane_size = self.resolution.0 * self.resolution.1;
+            let (mut y, mut u, mut v) = (vec![0; plane_size], vec![0; plane_size], vec![0; plane_size]);
+            frame
+                .iter()
+                .copied()
+                .pixels::<Rgba<u8>>()
+                .map(<Rgba<u8> as Into<Yuv<u8>>>::into)
+                .bytes()
+                .enumerate()
+                .for_each(|(i, yuv)| {
+                    y[i] = yuv[0];
+                    u[i] = yuv[1];
+                    v[i] = yuv[2];
+                });
+            // Copy planes to frame
             let mut yuv = new_frame.planes_mut();
-            yuv[0].data_mut().write_all(frame.chunks(3).map(|pixel| pixel[0]).collect::<Vec<_>>().as_slice()).unwrap();
-            yuv[1].data_mut().write_all(frame.chunks(3).map(|pixel| pixel[1]).collect::<Vec<_>>().as_slice()).unwrap();
-            yuv[2].data_mut().write_all(frame.chunks(3).map(|pixel| pixel[2]).collect::<Vec<_>>().as_slice()).unwrap();
+            yuv[0].data_mut().write_all(&y).unwrap();
+            yuv[1].data_mut().write_all(&u).unwrap();
+            yuv[2].data_mut().write_all(&v).unwrap();
             // Add to encoder queue
             encoder.push(new_frame.with_pts(timestamp).freeze()).unwrap();
         }
